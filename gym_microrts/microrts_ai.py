@@ -66,6 +66,10 @@ def naiveMCTSAI(utt):
 
     return NaiveMCTS(utt)
 
+def naiveMCTSAI(utt):
+    from ai.mcts.naivemcts import NaiveMCTS
+
+    return NaiveMCTS(utt)
 
 # https://github.com/AmoyZhp/MixedBotmRTS
 def mixedBot(utt):
