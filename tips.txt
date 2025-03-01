@@ -33,9 +33,15 @@ python NavieMCTS.py \
     --agent2-model-path models/MicroRTSGridModeVecEnv__ppo_gridnet__1__1739745866/6144.pt
 
 
+<<<<<<< HEAD
 cd experiments
 xvfb-run -s "-screen 0 1024x768x24" python ppo_gridnet_eval.py \
     --capture-video \
     --agent-model-path gym-microrts-static-files/agent_sota.pt \
     --agent2-model-path gym-microrts-static-files/Navie.pt
 
+=======
+xvfb-run -s "-screen 0 1024x768x24" python NavieMCTS.py
+
+python NavieMCTS.py     --total-timesteps 100000000     --capture-video     --seed 1     --reward-weights 5.0 0.5 0.5 0.1 0.5 2.0
+>>>>>>> 6d35192e8ace6e4c185f59559620d7a6622988b9

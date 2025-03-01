@@ -1,5 +1,3 @@
-# http://proceedings.mlr.press/v97/han19a/han19a.pdf
-
 import argparse
 import os
 import random
@@ -95,6 +93,10 @@ def parse_args():
         help='the list of maps used during training')
     parser.add_argument('--eval-maps', nargs='+', default=["maps/16x16/basesWorkers16x16A.xml"],
         help='the list of maps used during evaluation')
+
+    # NEW: Configurable reward weights
+    parser.add_argument('--reward-weights', type=float, nargs='+', default=[10.0, 1.0, 1.0, 0.2, 1.0, 4.0],
+                        help='Weights for the different components of the reward signal.')
 
     args = parser.parse_args()
     if not args.seed:
@@ -284,6 +286,7 @@ class TrueskillWriter:
                 "trueskill": league.loc[model_path]["trueskill"],
             }
             self.trueskill_df = self.trueskill_df.append(trueskill_data, ignore_index=True)
+            import wandb
             wandb.log({"trueskill": wandb.Table(dataframe=self.trueskill_df)})
             trueskill_data["type"] = "training"
             trueskill_data["step"] = model_global_step
@@ -334,12 +337,9 @@ if __name__ == "__main__":
         partial_obs=args.partial_obs,
         max_steps=2000,
         render_theme=2,
-        ai2s=[microrts_ai.coacAI for _ in range(args.num_bot_envs - 6)]
-        + [microrts_ai.naiveMCTSAI for _ in range(min(args.num_bot_envs, 2))]
-        + [microrts_ai.lightRushAI for _ in range(min(args.num_bot_envs, 2))]
-        + [microrts_ai.workerRushAI for _ in range(min(args.num_bot_envs, 2))],
+        ai2s=[microrts_ai.naiveMCTSAI for _ in range(args.num_bot_envs)],
         map_paths=[args.train_maps[0]],
-        reward_weight=np.array([10.0, 1.0, 1.0, 0.2, 1.0, 4.0]),
+        reward_weight=np.array(args.reward_weights),  # Use configurable reward weights
         cycle_maps=args.train_maps,
     )
     envs = MicroRTSStatsRecorder(envs, args.gamma)
@@ -385,7 +385,7 @@ if __name__ == "__main__":
     # CRASH AND RESUME LOGIC:
     starting_update = 1
 
-    if args.prod_mode and wandb.run.resumed:
+    if args.prod_mode and 'run' in locals() and wandb.run.resumed:
         starting_update = run.summary.get("charts/update") + 1
         global_step = starting_update * args.batch_size
         api = wandb.Api()
@@ -434,7 +434,7 @@ if __name__ == "__main__":
                 next_obs, rs, ds, infos = envs.step(action.cpu().numpy().reshape(envs.num_envs, -1))
                 next_obs = torch.Tensor(next_obs).to(device)
             except Exception as e:
-                e.printStackTrace()
+                print(e)
                 raise
             rewards[step], next_done = torch.Tensor(rs).to(device), torch.Tensor(ds).to(device)
 
@@ -536,6 +536,7 @@ if __name__ == "__main__":
             torch.save(agent.state_dict(), f"models/{experiment_name}/agent.pt")
             torch.save(agent.state_dict(), f"models/{experiment_name}/{global_step}.pt")
             if args.prod_mode:
+                import wandb
                 wandb.save(f"models/{experiment_name}/agent.pt", base_path=f"models/{experiment_name}", policy="now")
             if eval_executor is not None:
                 future = eval_executor.submit(
