@@ -15,9 +15,27 @@ xvfb-run -s "-screen 0 1024x768x24" python ppo_gridnet_eval.py \
 
 xvfb-run -s "-screen 0 1024x768x24" python hello_world_record_video.py
 
-xvfb-run -s "-screen 0 1024x768x24" python ai_1.py
 
-xvfb-run -s "-screen 0 1024x768x24" python Myai_large.py --partial-obs --capture-video --seed 1
+cd experiments
+xvfb-run -s "-screen 0 1024x768x24" python ppo_gridnet.py \
+    --total-timesteps 100000000 \
+    --capture-video \
+    --seed 1
+
+python NavieMCTS.py \
+  --total-timesteps 100000000 \
+  --seed 1 \
+  --prod-mode \
+  --wandb-project-name NavieMCTS 
+
+  xvfb-run -s "-screen 0 1024x768x24" python ppo_gridnet_eval.py --partial-obs --capture-video --seed 1 \
+    --agent-model-path gym-microrts-static-files/agent_sota.pt \
+    --agent2-model-path models/MicroRTSGridModeVecEnv__ppo_gridnet__1__1739745866/6144.pt
 
 
-xvfb-run -s "-screen 0 1024x768x24" python NavieMCTS.py
+cd experiments
+xvfb-run -s "-screen 0 1024x768x24" python ppo_gridnet_eval.py \
+    --capture-video \
+    --agent-model-path gym-microrts-static-files/agent_sota.pt \
+    --agent2-model-path gym-microrts-static-files/Navie.pt
+
