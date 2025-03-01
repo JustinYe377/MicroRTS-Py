@@ -21,3 +21,5 @@ xvfb-run -s "-screen 0 1024x768x24" python Myai_large.py --partial-obs --capture
 
 
 xvfb-run -s "-screen 0 1024x768x24" python NavieMCTS.py
+
+python NavieMCTS.py     --total-timesteps 100000000     --capture-video     --seed 1     --reward-weights 5.0 0.5 0.5 0.1 0.5 2.0
