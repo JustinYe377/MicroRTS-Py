@@ -9,8 +9,9 @@ pip install imageio-ffmpeg
 
 
 xvfb-run -s "-screen 0 1024x768x24" python ppo_gridnet_eval.py \
+    --partial-obs\
     --agent-model-path gym-microrts-static-files/agent_sota.pt \
-    --agent2-model-path gym-microrts-static-files/agent_sota.pt
+    --agent2-model-path gym-microrts-static-files/12945408.pt
 
 
 xvfb-run -s "-screen 0 1024x768x24" python hello_world_record_video.py
@@ -22,4 +23,12 @@ xvfb-run -s "-screen 0 1024x768x24" python Myai_large.py --partial-obs --capture
 
 xvfb-run -s "-screen 0 1024x768x24" python NavieMCTS.py
 
-python NavieMCTS.py     --total-timesteps 100000000     --capture-video     --seed 1     --reward-weights 5.0 0.5 0.5 0.1 0.5 2.0
+python train.py     --total-timesteps 100000000     --capture-video     --seed 1     --reward-weights 5.0 0.5 0.5 0.1 0.5 2.0
+
+xvfb-run -s "-screen 0 1024x768x24" python train.py \
+    --total-timesteps 100000000 \
+    --capture-video \
+    --seed 1 \
+    --prod-mode True \
+    --reward-weights 5.0 0.5 0.5 0.1 0.5 2.0
+
