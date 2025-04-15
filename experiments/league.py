@@ -185,7 +185,7 @@ class Match:
                 render_theme=2,
                 ai2s=built_in_ais,
                 map_paths=[map_path],
-                reward_weight=np.array([10.0, 1.0, 1.0, 0.2, 1.0, 4.0]),
+                reward_weight=np.array([10.0, 1.0, 1.0, 0.2, 1.0, 4.0, 1.0, 0.5, -0.2, 0.3]),
                 autobuild=False,
             )
             self.agent = Agent(self.envs).to(self.device)
@@ -199,7 +199,7 @@ class Match:
                 max_steps=max_steps,
                 render_theme=2,
                 map_paths=[map_path],
-                reward_weight=np.array([10.0, 1.0, 1.0, 0.2, 1.0, 4.0]),
+                reward_weight=np.array([10.0, 1.0, 1.0, 0.2, 1.0, 4.0, 1.0, 0.5, -0.2, 0.3]),
                 autobuild=False,
             )
             self.agent = Agent(self.envs).to(self.device)
@@ -215,7 +215,7 @@ class Match:
                 max_steps=max_steps,
                 render_theme=2,
                 map_paths=[map_path],
-                reward_weight=np.array([10.0, 1.0, 1.0, 0.2, 1.0, 4.0]),
+                reward_weight=np.array([10.0, 1.0, 1.0, 0.2, 1.0, 4.0, 1.0, 0.5, -0.2, 0.3]),
                 autobuild=False,
             )
         self.envs = MicroRTSStatsRecorder(self.envs)
