@@ -110,6 +110,37 @@ def parse_args():
     return args
 
 
+def compute_map_control(obs):
+    # Reward for units being close to the enemy base (e.g., top right corner on 16x16)
+    if obs.ndim == 3:
+        grid_x, grid_y = np.meshgrid(np.arange(obs.shape[1]), np.arange(obs.shape[0]))
+        enemy_base_x, enemy_base_y = 14, 14
+        distance = np.sqrt((grid_x - enemy_base_x) ** 2 + (grid_y - enemy_base_y) ** 2)
+        unit_mask = (obs[:, :, 0] == 1)  # Assuming own units at channel 0
+        return float(np.sum(unit_mask * (1 / (distance + 1))))
+    return 0.0
+
+def compute_aggression_bonus(obs):
+    # Count own units inside enemy territory (bottom right corner)
+    if obs.ndim == 3:
+        territory_mask = np.zeros_like(obs[:, :, 0])
+        territory_mask[12:, 12:] = 1
+        unit_mask = (obs[:, :, 0] == 1)
+        return float(np.sum(unit_mask * territory_mask))
+    return 0.0
+
+def agent_idle_too_long(obs, prev_obs):
+    if obs.ndim == 3 and prev_obs is not None:
+        return float(np.array_equal(obs[:, :, 0], prev_obs[:, :, 0]))
+    return 0.0
+
+def compute_worker_growth(obs):
+    # Reward number of worker units (assuming channel 6 is workers)
+    if obs.ndim == 3:
+        return float(np.sum(obs[:, :, 6]))
+    return 0.0
+
+    
 class MicroRTSStatsRecorder(VecEnvWrapper):
     def __init__(self, env, gamma=0.99) -> None:
         super().__init__(env)
@@ -126,25 +157,55 @@ class MicroRTSStatsRecorder(VecEnvWrapper):
         obs, rews, dones, infos = self.venv.step_wait()
         newinfos = list(infos[:])
         for i in range(len(dones)):
-            self.raw_rewards[i] += [infos[i]["raw_rewards"]]
+            # Get full observation
+            if "global_obs" in infos[i]:
+                current_obs = infos[i]["global_obs"]
+            else:
+                current_obs = self.venv.get_attr("map", i)[0]  # fallback
+
+            # Get previous obs if stored
+            prev_obs = getattr(self, f"prev_obs_{i}", None)
+
+            # Compute custom rewards
+            shaped_rewards = np.array([
+                compute_map_control(current_obs),
+                compute_aggression_bonus(current_obs),
+                -agent_idle_too_long(current_obs, prev_obs),
+                compute_worker_growth(current_obs),
+            ])
+
+            # Save for next step
+            setattr(self, f"prev_obs_{i}", current_obs)
+
+            # Concatenate rewards
+            extended_rewards = np.concatenate([infos[i]["raw_rewards"], shaped_rewards])
+            self.raw_rewards[i] += [extended_rewards]
+
             self.raw_discount_rewards[i] += [
-                (self.gamma ** self.ts[i])
-                * np.concatenate((infos[i]["raw_rewards"], infos[i]["raw_rewards"].sum()), axis=None)
+                (self.gamma ** self.ts[i]) * np.concatenate((extended_rewards, extended_rewards.sum(None)), axis=None)
             ]
             self.ts[i] += 1
+
             if dones[i]:
                 info = infos[i].copy()
                 raw_returns = np.array(self.raw_rewards[i]).sum(0)
-                raw_names = [str(rf) for rf in self.rfs]
+                raw_names = [
+                    "win", "resources", "kills", "buildings", "unit_deaths", "unit_prod",
+                    "map_control", "aggression", "passivity_penalty", "early_econ"
+                ]
                 raw_discount_returns = np.array(self.raw_discount_rewards[i]).sum(0)
-                raw_discount_names = ["discounted_" + str(rf) for rf in self.rfs] + ["discounted"]
+                raw_discount_names = ["discounted_" + name for name in raw_names] + ["discounted"]
+
                 info["microrts_stats"] = dict(zip(raw_names, raw_returns))
                 info["microrts_stats"].update(dict(zip(raw_discount_names, raw_discount_returns)))
+
                 self.raw_rewards[i] = []
                 self.raw_discount_rewards[i] = []
                 self.ts[i] = 0
                 newinfos[i] = info
+
         return obs, rews, dones, newinfos
+
 
 
 # ALGO LOGIC: initialize agent here:
