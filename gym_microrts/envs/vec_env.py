@@ -28,7 +28,34 @@ It is however possible to record the videos via `env.render(mode='rgb_array')`.
 See https://github.com/vwxyzjn/gym-microrts/blob/b46c0815efd60ae959b70c14659efb95ef16ffb0/hello_world_record_video.py
 as an example.
 """
+def compute_map_control(obs):
+    h, w = obs.shape[:2]
+    if obs.ndim == 3:
+        grid_x, grid_y = np.meshgrid(np.arange(w), np.arange(h))
+        enemy_base_x, enemy_base_y = w - 2, h - 2
+        distance = np.sqrt((grid_x - enemy_base_x) ** 2 + (grid_y - enemy_base_y) ** 2)
+        unit_mask = (obs[:, :, 0] == 1)
+        return float(np.sum(unit_mask * (1 / (distance + 1))))
+    return 0.0
 
+def compute_aggression_bonus(obs):
+    if obs.ndim == 3:
+        h, w = obs.shape[:2]
+        territory_mask = np.zeros((h, w))
+        territory_mask[h//2:, w//2:] = 1
+        unit_mask = (obs[:, :, 0] == 1)
+        return float(np.sum(unit_mask * territory_mask))
+    return 0.0
+
+def agent_idle_too_long(obs, prev_obs):
+    if obs.ndim == 3 and prev_obs is not None:
+        return float(np.array_equal(obs[:, :, 0], prev_obs[:, :, 0]))
+    return 0.0
+
+def compute_worker_growth(obs):
+    if obs.ndim == 3:
+        return float(np.sum(obs[:, :, 6]))
+    return 0.0
 
 class MicroRTSGridModeVecEnv:
     metadata = {"render.modes": ["human", "rgb_array"], "video.frames_per_second": 150}
@@ -41,20 +68,27 @@ class MicroRTSGridModeVecEnv:
     """
 
     def __init__(
-        self,
-        num_selfplay_envs,
-        num_bot_envs,
-        partial_obs=False,
-        max_steps=2000,
-        render_theme=2,
-        frame_skip=0,
-        ai2s=[],
-        map_paths=["maps/10x10/basesTwoWorkers10x10.xml"],
-        reward_weight=np.array([0.0, 1.0, 0.0, 0.0, 0.0, 5.0]),
-        cycle_maps=[],
-        autobuild=True,
-        jvm_args=[],
+    self,
+    num_selfplay_envs,
+    num_bot_envs,
+    partial_obs=False,
+    max_steps=2000,
+    render_theme=2,
+    frame_skip=0,
+    ai2s=[],
+    map_paths=["maps/10x10/basesTwoWorkers10x10.xml"],
+    reward_weight=None,
+    cycle_maps=[],
+    autobuild=True,
+    jvm_args=[],
     ):
+        if reward_weight is None:
+            reward_weight = np.array([0.0, 1.0, 0.0, 0.0, 0.0, 5.0])
+        self.reward_weight = np.array(reward_weight)
+        print(">>> [INIT] reward_weight shape =", self.reward_weight.shape)
+
+
+
 
         self.num_selfplay_envs = num_selfplay_envs
         self.num_bot_envs = num_bot_envs
@@ -223,28 +257,38 @@ class MicroRTSGridModeVecEnv:
         responses = self.vec_client.gameStep(self.actions, [0] * self.num_envs)
         reward, done = np.array(responses.reward), np.array(responses.done)
         obs = [self._encode_obs(np.array(ro)) for ro in responses.observation]
-        infos = [{"raw_rewards": item} for item in reward]
-        # check if it is in evaluation, if not, then change maps
-        if len(self.cycle_maps) > 0:
-            # check if an environment is done, if done, reset the client, and replace the observation
-            for done_idx, d in enumerate(done[:, 0]):
-                # bot envs settings
-                if done_idx < self.num_bot_envs:
-                    if d:
-                        self.vec_client.clients[done_idx].mapPath = next(self.next_map)
-                        response = self.vec_client.clients[done_idx].reset(0)
-                        obs[done_idx] = self._encode_obs(np.array(response.observation))
-                # selfplay envs settings
-                else:
-                    if d and done_idx % 2 == 0:
-                        done_idx -= self.num_bot_envs  # recalibrate the index
-                        self.vec_client.selfPlayClients[done_idx // 2].mapPath = next(self.next_map)
-                        self.vec_client.selfPlayClients[done_idx // 2].reset()
-                        p0_response = self.vec_client.selfPlayClients[done_idx // 2].getResponse(0)
-                        p1_response = self.vec_client.selfPlayClients[done_idx // 2].getResponse(1)
-                        obs[done_idx] = self._encode_obs(np.array(p0_response.observation))
-                        obs[done_idx + 1] = self._encode_obs(np.array(p1_response.observation))
+        infos = []
+
+        shaped_rewards = []
+
+        for i in range(self.num_envs):
+            current_obs = obs[i]
+            prev_obs = getattr(self, f"_prev_obs_{i}", None)
+
+            # --- 🧠 Shaped Reward Computation ---
+            shape_vector = np.array([
+                compute_map_control(current_obs),
+                compute_aggression_bonus(current_obs),
+                -agent_idle_too_long(current_obs, prev_obs),
+                compute_worker_growth(current_obs),
+            ])
+            shaped_rewards.append(shape_vector)
+            setattr(self, f"_prev_obs_{i}", current_obs)
+
+            # Pack info
+            infos.append({
+                "raw_rewards": reward[i],
+                "shaped_rewards": shape_vector
+            })
+
+        # --- 🔧 Combine base + shaped rewards ---
+        shaped_rewards = np.stack(shaped_rewards)                      # (N, 4)
+        reward = np.hstack((reward, shaped_rewards))                   # (N, 10)
+
         return np.array(obs), reward @ self.reward_weight, done[:, 0], infos
+
+        
+
 
     def step(self, ac):
         self.step_async(ac)
@@ -289,6 +333,7 @@ class MicroRTSGridModeVecEnv:
         self.source_unit_mask = action_mask[:, :, :, 0].reshape(self.num_envs, -1)
         action_type_and_parameter_mask = action_mask[:, :, :, 1:].reshape(self.num_envs, self.height * self.width, -1)
         return action_type_and_parameter_mask
+
 
 
 class MicroRTSBotVecEnv(MicroRTSGridModeVecEnv):
@@ -549,7 +594,24 @@ class MicroRTSGridModeSharedMemVecEnv(MicroRTSGridModeVecEnv):
                         # self.vec_client.selfPlayClients[done_idx // 2].reset()
                         # self.obs[done_idx] = self._encode_obs(np.array(p0_response.observation))
                         # self.obs[done_idx + 1] = self._encode_obs(np.array(p1_response.observation))
+        shaped_rewards = []
+        for i in range(self.num_envs):
+            current_obs = self.obs[i]
+            prev_obs = getattr(self, f"_prev_obs_{i}", None)
+            shape_vector = np.array([
+                compute_map_control(current_obs),
+                compute_aggression_bonus(current_obs),
+                -agent_idle_too_long(current_obs, prev_obs),
+                compute_worker_growth(current_obs),
+            ])
+            shaped_rewards.append(shape_vector)
+            setattr(self, f"_prev_obs_{i}", current_obs)
+            infos[i]["shaped_rewards"] = shape_vector
+
+        shaped_rewards = np.stack(shaped_rewards)
+        reward = np.hstack((reward, shaped_rewards))  # Now (N, 10)
         return self.obs, reward @ self.reward_weight, done[:, 0], infos
+
 
     def get_action_mask(self):
         self.vec_client.getMasks(0)

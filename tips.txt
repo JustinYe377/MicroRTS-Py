@@ -34,11 +34,16 @@ xvfb-run -s "-screen 0 1024x768x24" python train.py \
 
 xvfb-run -s "-screen 0 1024x768x24" python train.py \
   --exp-name extended_reward_shaping \
-  --partial-obs False \
-  --prod-mode False \
+  --partial-obs True\
+  --prod-mode True \
   --num-selfplay-envs 24 \
   --num-bot-envs 0 \
-  --train-maps maps/16x16/basesWorkers16x16A.xml \
-  --eval-maps maps/16x16/basesWorkers16x16A.xml \
   --total-timesteps 50000000 \
   --reward-weight 10.0 1.0 1.0 0.2 1.0 4.0 1.0 0.5 -0.2 0.3
+
+
+xvfb-run -s "-screen 0 1024x768x24" python train.py \
+    --total-timesteps 100000000 \
+    --capture-video \
+    --seed 1 \
+    --reward-weight 10.0 1.0 1.0 0.2 1.0 4.0

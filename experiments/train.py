@@ -95,7 +95,7 @@ def parse_args():
         help='the list of maps used during evaluation')
 
     # NEW: Configurable reward weights
-    parser.add_argument('--reward-weights', type=float, nargs='+', default=[10.0, 1.0, 1.0, 0.2, 1.0, 4.0],
+    parser.add_argument('--reward-weights', type=float, nargs='+', default=[10.0, 1.0, 1.0, 0.2, 1.0, 4.0, 1.0, 0.5, -0.2, 0.3],
                         help='Weights for the different components of the reward signal.')
 
     args = parser.parse_args()
@@ -157,43 +157,24 @@ class MicroRTSStatsRecorder(VecEnvWrapper):
         obs, rews, dones, infos = self.venv.step_wait()
         newinfos = list(infos[:])
         for i in range(len(dones)):
-            # Get full observation
-            if "global_obs" in infos[i]:
-                current_obs = infos[i]["global_obs"]
-            else:
-                current_obs = self.venv.get_attr("map", i)[0]  # fallback
-
-            # Get previous obs if stored
-            prev_obs = getattr(self, f"prev_obs_{i}", None)
-
-            # Compute custom rewards
-            shaped_rewards = np.array([
-                compute_map_control(current_obs),
-                compute_aggression_bonus(current_obs),
-                -agent_idle_too_long(current_obs, prev_obs),
-                compute_worker_growth(current_obs),
-            ])
-
-            # Save for next step
-            setattr(self, f"prev_obs_{i}", current_obs)
-
-            # Concatenate rewards
-            extended_rewards = np.concatenate([infos[i]["raw_rewards"], shaped_rewards])
-            self.raw_rewards[i] += [extended_rewards]
-
-            self.raw_discount_rewards[i] += [
-                (self.gamma ** self.ts[i]) * np.concatenate((extended_rewards, extended_rewards.sum(None)), axis=None)
-            ]
+            shaped = infos[i].get("shaped_rewards", None)
+            if shaped is not None:
+                self.raw_rewards[i] += [np.concatenate([infos[i]["raw_rewards"], shaped])]
+                self.raw_discount_rewards[i] += [
+                    (self.gamma ** self.ts[i]) * np.concatenate(
+                        [infos[i]["raw_rewards"], shaped, [np.sum(infos[i]["raw_rewards"]) + np.sum(shaped)]]
+                    )
+                ]
             self.ts[i] += 1
 
             if dones[i]:
                 info = infos[i].copy()
                 raw_returns = np.array(self.raw_rewards[i]).sum(0)
+                raw_discount_returns = np.array(self.raw_discount_rewards[i]).sum(0)
                 raw_names = [
                     "win", "resources", "kills", "buildings", "unit_deaths", "unit_prod",
                     "map_control", "aggression", "passivity_penalty", "early_econ"
                 ]
-                raw_discount_returns = np.array(self.raw_discount_rewards[i]).sum(0)
                 raw_discount_names = ["discounted_" + name for name in raw_names] + ["discounted"]
 
                 info["microrts_stats"] = dict(zip(raw_names, raw_returns))
@@ -205,6 +186,7 @@ class MicroRTSStatsRecorder(VecEnvWrapper):
                 newinfos[i] = info
 
         return obs, rews, dones, newinfos
+
 
 
 
